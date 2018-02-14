@@ -1,0 +1,11 @@
+<map id="inheritance07fb0c8be7" name="inheritance07fb0c8be7">
+<area shape="rect" id="node1" title="Base class of all Components (sometimes called" alt="" coords="386,88,468,109"/>
+<area shape="rect" id="node4" title="Provides the functionality to seek through a" alt="" coords="508,4,596,26"/>
+<area shape="rect" id="node5" title="Parent class for EventFileReaders of different sources." alt="" coords="509,46,595,67"/>
+<area shape="rect" id="node7" title="A base class for all class factories that exist in the `Tools`/`Components`" alt="" coords="522,88,582,109"/>
+<area shape="rect" id="node9" title="Base class for row&#45;wise table readers. Generally methods that read a" alt="" coords="509,129,595,151"/>
+<area shape="rect" id="node6" title="The `EventSource` `ctapipe.core.factory.Factory`. This" alt="" coords="636,88,764,109"/>
+<area shape="rect" id="node8" title="Reader that reads a single row of an HDF5 table at once into a Container." alt="" coords="643,129,757,151"/>
+<area shape="rect" id="node10" title="A very basic table writer that can take a container (or more than one)" alt="" coords="645,171,755,192"/>
+<area shape="rect" id="node12" title="The base class for all classes that have descriptors." alt="" coords="4,88,107,109"/>
+</map>
