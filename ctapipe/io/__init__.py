@@ -1,5 +1,6 @@
 from .eventsource import EventSource
 from .hessioeventsource import HESSIOEventSource
+from .hessfitsioeventsource import HESSfitsIOEventSource
 from .array import get_array_layout
 from .eventsourcefactory import EventSourceFactory, event_source
 from .eventseeker import EventSeeker
