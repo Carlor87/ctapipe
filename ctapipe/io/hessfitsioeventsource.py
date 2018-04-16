@@ -1,7 +1,9 @@
 from astropy import units as u
 from astropy.coordinates import Angle
-from astropy.time import Time
-from astropy.io import fits
+from astropy.time import Time,TimeDelta
+from astropy.io import fits  #substitute with faster fitsio
+# import fitsio as fits      ## change all the code to use this library
+from astropy.table import Table
 from ctapipe.io.eventsource import EventSource
 from ctapipe.io.containers import DataContainer
 from ctapipe.instrument import CameraGeometry,OpticsDescription,TelescopeDescription, SubarrayDescription
@@ -23,14 +25,17 @@ class HESSfitsIOEventSource(EventSource):
     def __init__(self, config=None, tool=None, **kwargs):
         super().__init__(config=config, tool=tool, **kwargs)
         # NEEDS numpy
+        # NEEDS os.path
         try:
             import numpy as np
+            import os as os
         except ImportError:
             msg = "The `numpy` python module is required to run the pipe"
             self.log.error(msg)
             raise
 
         self.np = np
+        self.os = os
 
     @staticmethod
     def is_compatible(file_path):
@@ -74,14 +79,15 @@ class HESSfitsIOEventSource(EventSource):
             eventstream = eventtable.data
             data = DataContainer()
             data.meta['origin'] = "HESSfits"
-
             data.meta['input_url'] = self.input_url
             data.meta['max_events'] = self.max_events  #not sure how to handle this if events have a separated entry for each telescope
             obs_id = eventtable.header['OBS_ID']
-            
             data.inst.subarray = self._build_subarray_info(obs_id)
+            ### Change this to a pointing position for each telescope and each event
+            ### Or something with pointing as a function of time
             data.pointing.azimuth = eventtable.header['AZ_PNT']    #average azimuth for run 
             data.pointing.altitude = eventtable.header['ALT_PNT']  #average zenith for run (ideally per event)
+            reftime = Time(eventtable.header['MJDREFI']+eventtable.header['MJDREFF'],format='mjd')
 
             while inc < (len(eventstream['EVENT_ID'])):
                 '''
@@ -117,8 +123,10 @@ class HESSfitsIOEventSource(EventSource):
 
                 telc=0 #counter for the number of telescopes
                 for tel_id in tels_with_data:
+                    countcam = inc + telc  # ausiliar counter for the correct row of the image
+                    ## time of the event for each telescope, copied in the dl0.CameraContainer
+                    data.dl0.tel[tel_id].trigger_time = (reftime+TimeDelta(eventstream['TIME'][countcam],format='sec'))
                     npix = len(data.inst.subarray.tel[tel_id].camera.pix_id)
-                    countcam = inc+telc #ausiliar counter for the correct row of the image
                     data.dl1.tel[tel_id].image = self.np.zeros(npix)
                     data.dl1.tel[tel_id].image[eventstream['TEL_IMG_IPIX'][countcam]]=eventstream['TEL_IMG_INT'][countcam]
                     telc+=1
@@ -126,8 +134,6 @@ class HESSfitsIOEventSource(EventSource):
                 inc = inc + len(tels_with_data) # update the counter to jump to the next event
                 yield data
                 counter += 1
-                
-
         return
 
     def _build_subarray_info(self, runnumber):
@@ -136,6 +142,10 @@ class HESSfitsIOEventSource(EventSource):
         !!! NEEDS IMPROVEMENT !!!
         Needs to open a new fits file because the telescope infos
         are not in the main data file
+        TO BE MADE FASTER
+
+        Added also the reading of the camera file "chercam.fits"
+        with the position of the pixels
 
         Parameters
         ----------
@@ -146,15 +156,28 @@ class HESSfitsIOEventSource(EventSource):
         SubarrayDescription :
             instrumental information
         """
-        newfilename = "run_00"+str(runnumber)+"_std_zeta_eventlist.fits"  ##FIX THIS!!
+        pathtofile = self.os.path.split(self.input_url)[0]+'/'
+        newfilename = pathtofile+"run_00"+str(runnumber)+"_std_zeta_eventlist.fits"  ##FIX THIS!!
+        chercamfile = pathtofile+"chercam_t2.txt"
+        pixtab = Table.read("chercam_t2.txt",format='ascii') #read the table with the pixel position
         subarray = SubarrayDescription("HESS-I")
         try:
-            hdu_array = fits.open(newfilename)[2] #open directly the table with the telarray    
+            hdu_array = fits.open(newfilename)[2] #open directly the table with the telarray
             teldata = hdu_array.data
             telescope_ids = list(teldata['TELID'])
 
             for tel_id in telescope_ids:
-                geom = CameraGeometry.from_name("HESS-I")   # import HESS-I camera geometry
+                #geom = CameraGeometry.from_name("HESS-I")   # import HESS-I camera geometry
+                cam=pixtab[(tel_id-1)*960:tel_id*960]
+                # import HESS-I camera geometry from chercam file
+                geom = CameraGeometry(
+                                       tel_id,
+                                       cam['pix_id'],
+                                       cam['pix_x']*u.m,
+                                       cam['pix_y']*u.m,
+                                       cam['pix_area']*u.m*u.m,
+                                       pix_type='hexagonal'
+                )
                 foclen = teldata['FOCLEN'][tel_id-1] * u.m
                 mirror_area = 108*u.m*u.m                   # hard coded, NEED FIX! This column is empty in the original fits file!
                 num_tiles = 382                             # hard coded, missing in the original file
