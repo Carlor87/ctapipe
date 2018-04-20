@@ -1,14 +1,12 @@
 from astropy import units as u
-from astropy.coordinates import Angle
+#from astropy.coordinates import Angle
 from astropy.time import Time,TimeDelta
-from astropy.io import fits  #substitute with faster fitsio
-# import fitsio as fits      ## change all the code to use this library
+from fitsio import FITS      ## change all the code to use this library
 from astropy.table import Table
 from ctapipe.io.eventsource import EventSource
 from ctapipe.io.containers import DataContainer
 from ctapipe.instrument import CameraGeometry,OpticsDescription,TelescopeDescription, SubarrayDescription
-import gzip
-import struct
+
 
 __all__ = ['HESSfitsIOEventSource']
 
@@ -24,8 +22,6 @@ class HESSfitsIOEventSource(EventSource):
 
     def __init__(self, config=None, tool=None, **kwargs):
         super().__init__(config=config, tool=tool, **kwargs)
-        # NEEDS numpy
-        # NEEDS os.path
         try:
             import numpy as np
             import os as os
@@ -44,57 +40,54 @@ class HESSfitsIOEventSource(EventSource):
         if it has the right columns in it
         use build-in commands in astropy.io.fits
         '''
-        with fits.open(file_path,mmap=True) as hdul:
+        with FITS(file_path) as hdul:
             try:
                 try:
-                    hdul['TEVENTS'].verify('exception') #should find an exception handling
-                except KeyError:
+                    hdul['TEVENTS'].has_data() #check if the table has data inside
+                except IOError:
                     msg = "Table TEVENTS not found!"
-                    self.log.error(msg)
+                    #self.log.error(msg)
             except FileNotFoundError:
                 msg = "File not found, please provide existing file"
-                self.log.error(msg)
-        return True;
+                #self.log.error(msg)
+        return True
                 
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         '''
-        !!!TO BE BETTER DEFINED!!!
-        needs both to close the file
-        and to send the table to garbage collection.
-        Needed because file opened with mmap=True
-        See astropy.io.fits documentation
+        !!!TO BE DEFINED!!!
         '''
         #hdul.close()
         #del table
         
 
     def _generator(self):
-        with fits.open(self.input_url,mmap=True,mode='denywrite') as hdul:
+        with FITS(self.input_url) as hdul:
             # the container is initialized once, and data is replaced within
             # it after each yield
             counter = 0  ## progressive counter
             inc = 0      ## counter that jumps to the the row of the new event
             eventtable = hdul['TEVENTS']
-            eventstream = eventtable.data
             data = DataContainer()
             data.meta['origin'] = "HESSfits"
             data.meta['input_url'] = self.input_url
             data.meta['max_events'] = self.max_events  #not sure how to handle this if events have a separated entry for each telescope
-            obs_id = eventtable.header['OBS_ID']
-            data.inst.subarray = self._build_subarray_info(obs_id)
+            obs_id = eventtable.read_header()['OBS_ID']
             ### Change this to a pointing position for each telescope and each event
             ### Or something with pointing as a function of time
-            data.pointing.azimuth = eventtable.header['AZ_PNT']    #average azimuth for run 
-            data.pointing.altitude = eventtable.header['ALT_PNT']  #average zenith for run (ideally per event)
-            reftime = Time(eventtable.header['MJDREFI']+eventtable.header['MJDREFF'],format='mjd')
-
-            while inc < (len(eventstream['EVENT_ID'])):
+            data.pointing.azimuth = eventtable.read_header()['AZ_PNT']    #average azimuth for run
+            data.pointing.altitude = eventtable.read_header()['ALT_PNT']  #average zenith for run (ideally per event)
+            reftime = Time(eventtable.read_header()['MJDREFI']+eventtable.read_header()['MJDREFF'],format='mjd')
+            while inc < eventtable.get_nrows():
                 '''
                 make the streaming of events different, it is a bit brutal this way
                 '''
-                event_id=eventstream['EVENT_ID'][inc] 
-                tels_with_data = eventstream[eventstream['EVENT_ID']==event_id].TEL_ID
+                if counter == 0:
+                    data.inst.subarray = self._build_subarray_info(obs_id)
+                eventstream = eventtable[inc:inc + 4]
+                event_id=eventtable['EVENT_ID'][inc]
+                tels_with_data = eventstream[eventstream['EVENT_ID']==event_id]['TEL_ID']
+
                 data.count = counter
                 data.r0.obs_id = obs_id
                 data.r0.event_id = event_id
@@ -121,23 +114,19 @@ class HESSfitsIOEventSource(EventSource):
                 data.dl0.tel.clear()
                 data.dl1.tel.clear()
 
-                telc=0 #counter for the number of telescopes
                 for tel_id in tels_with_data:
-                    countcam = inc + telc  # ausiliar counter for the correct row of the image
                     ## time of the event for each telescope, copied in the dl0.CameraContainer
-                    data.dl0.tel[tel_id].trigger_time = (reftime+TimeDelta(eventstream['TIME'][countcam],format='sec'))
+                    data.dl0.tel[tel_id].trigger_time = (reftime+TimeDelta(eventstream['TIME'][tel_id-1],format='sec'))
                     npix = len(data.inst.subarray.tel[tel_id].camera.pix_id)
                     data.dl1.tel[tel_id].image = self.np.zeros(npix)
-                    data.dl1.tel[tel_id].image[eventstream['TEL_IMG_IPIX'][countcam]]=eventstream['TEL_IMG_INT'][countcam]
-                    telc+=1
-                
+                    data.dl1.tel[tel_id].image[eventstream['TEL_IMG_IPIX'][tel_id-1]]=eventstream['TEL_IMG_INT'][tel_id-1]
                 inc = inc + len(tels_with_data) # update the counter to jump to the next event
                 yield data
                 counter += 1
         return
 
     def _build_subarray_info(self, runnumber):
-        """
+        '''
         !!! TEMPORARY PACTH !!!
         !!! NEEDS IMPROVEMENT !!!
         Needs to open a new fits file because the telescope infos
@@ -155,21 +144,19 @@ class HESSfitsIOEventSource(EventSource):
         -------
         SubarrayDescription :
             instrumental information
-        """
+        '''
         pathtofile = self.os.path.split(self.input_url)[0]+'/'
         newfilename = pathtofile+"run_00"+str(runnumber)+"_std_zeta_eventlist.fits"  ##FIX THIS!!
         chercamfile = pathtofile+"chercam_t2.txt"
-        pixtab = Table.read("chercam_t2.txt",format='ascii') #read the table with the pixel position
+        pixtab = Table.read(chercamfile,format='ascii') #read the table with the pixel position
         subarray = SubarrayDescription("HESS-I")
         try:
-            hdu_array = fits.open(newfilename)[2] #open directly the table with the telarray
-            teldata = hdu_array.data
+            hdu_array = FITS(newfilename)[2] #open directly the table with the telarray
+            teldata = hdu_array.read()
             telescope_ids = list(teldata['TELID'])
 
             for tel_id in telescope_ids:
-                #geom = CameraGeometry.from_name("HESS-I")   # import HESS-I camera geometry
                 cam=pixtab[(tel_id-1)*960:tel_id*960]
-                # import HESS-I camera geometry from chercam file
                 geom = CameraGeometry(
                                        tel_id,
                                        cam['pix_id'],
