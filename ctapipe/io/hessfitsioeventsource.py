@@ -73,11 +73,7 @@ class HESSfitsIOEventSource(EventSource):
             data.meta['input_url'] = self.input_url
             data.meta['max_events'] = self.max_events  #not sure how to handle this if events have a separated entry for each telescope
             obs_id = eventtable.read_header()['OBS_ID']
-            ### Change this to a pointing position for each telescope and each event
-            ### Or something with pointing as a function of time
-            data.pointing.azimuth = eventtable.read_header()['AZ_PNT']    #average azimuth for run
-            data.pointing.altitude = eventtable.read_header()['ALT_PNT']  #average zenith for run (ideally per event)
-            reftime = Time(eventtable.read_header()['MJDREFI']+eventtable.read_header()['MJDREFF'],format='mjd')
+            # reftime = Time(eventtable.read_header()['MJDREFI']+eventtable.read_header()['MJDREFF'],format='mjd')
             while inc < eventtable.get_nrows():
                 '''
                 make the streaming of events different, it is a bit brutal this way
@@ -86,6 +82,8 @@ class HESSfitsIOEventSource(EventSource):
                     data.inst.subarray = self._build_subarray_info(obs_id)
                 eventstream = eventtable[inc:inc + 4]
                 event_id=eventtable['EVENT_ID'][inc]
+                data.pointing.azimuth = eventtable['AZ_PNT'][inc][0]  # azimuth per event - needs to be a number
+                data.pointing.altitude = eventtable['ALT_PNT'][inc][0]  # altitude per event - needs to be a number
                 tels_with_data = eventstream[eventstream['EVENT_ID']==event_id]['TEL_ID']
 
                 data.count = counter
@@ -116,7 +114,8 @@ class HESSfitsIOEventSource(EventSource):
 
                 for tel_id in tels_with_data:
                     ## time of the event for each telescope, copied in the dl0.CameraContainer
-                    data.dl0.tel[tel_id].trigger_time = (reftime+TimeDelta(eventstream['TIME'][tel_id-1],format='sec'))
+                    data.dl0.tel[tel_id].trigger_time = (
+                                TimeDelta(eventstream['TIME'][tel_id - 1], format='sec'))
                     npix = len(data.inst.subarray.tel[tel_id].camera.pix_id)
                     data.dl1.tel[tel_id].image = self.np.zeros(npix)
                     data.dl1.tel[tel_id].image[eventstream['TEL_IMG_IPIX'][tel_id-1]]=eventstream['TEL_IMG_INT'][tel_id-1]
@@ -146,12 +145,13 @@ class HESSfitsIOEventSource(EventSource):
             instrumental information
         '''
         pathtofile = self.os.path.split(self.input_url)[0]+'/'
-        newfilename = pathtofile+"run_00"+str(runnumber)+"_std_zeta_eventlist.fits"  ##FIX THIS!!
-        chercamfile = pathtofile+"chercam_t2.txt"
-        pixtab = Table.read(chercamfile,format='ascii') #read the table with the pixel position
+        newfilename = pathtofile+"run_00"+str(runnumber)+"_std_zeta_eventlist.fits"  ## FIX THIS!!
+        chercamfile = pathtofile+"chercam.fits.gz"
+        # pixtab = Table.read(chercamfile,format='ascii') #read the table with the pixel position
+        pixtab = Table.read(chercamfile,format='fits') #read the table with the pixel position
         subarray = SubarrayDescription("HESS-I")
         try:
-            hdu_array = FITS(newfilename)[2] #open directly the table with the telarray
+            hdu_array = FITS(newfilename)[2] # open directly the table with the telarray
             teldata = hdu_array.read()
             telescope_ids = list(teldata['TELID'])
 
@@ -159,10 +159,10 @@ class HESSfitsIOEventSource(EventSource):
                 cam=pixtab[(tel_id-1)*960:tel_id*960]
                 geom = CameraGeometry(
                                        tel_id,
-                                       cam['pix_id'],
-                                       cam['pix_x']*u.m,
-                                       cam['pix_y']*u.m,
-                                       cam['pix_area']*u.m*u.m,
+                                       cam['PIX_ID'],
+                                       self.np.array(cam['PIX_POSX'])*u.m,
+                                       self.np.array(cam['PIX_POSY'])*u.m,
+                                       self.np.array(cam['PIX_AREA'])*u.m*u.m,
                                        pix_type='hexagonal'
                 )
                 foclen = teldata['FOCLEN'][tel_id-1] * u.m
@@ -170,7 +170,11 @@ class HESSfitsIOEventSource(EventSource):
                 num_tiles = 382                             # hard coded, missing in the original file
                 optic = OpticsDescription('DC','MST','',foclen,mirror_area,num_tiles)
                 
-                tel_pos = [teldata['POSX'][tel_id-1] * u.m,teldata['POSY'][tel_id-1] * u.m]
+                tel_pos = [
+                    teldata['POSX'][tel_id-1],
+                    teldata['POSY'][tel_id-1],
+                    teldata['POSZ'][tel_id-1]
+                ] * u.m
                 tel = TelescopeDescription(optic,geom)
                 subarray.tels[tel_id] = tel
                 subarray.positions[tel_id] = tel_pos

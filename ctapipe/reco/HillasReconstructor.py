@@ -247,6 +247,7 @@ class HillasReconstructor(Reconstructor):
                 moments.size * (moments.length / moments.width)
             )
             circle.pos = subarray.positions[tel_id]
+            #circle.pos = [subarray.positions[tel_id][x].value for x in range(3)] #TEST no units here
             self.circles[tel_id] = circle
 
     def fit_origin_crosses(self):
@@ -422,14 +423,18 @@ class HillasReconstructor(Reconstructor):
         # instead used directly the numpy implementation
         # speed is the same, just handles already "SingularMatrixError"
         pos = np.linalg.lstsq(A, D)[0] * u.m
+        #pos = np.linalg.lstsq(A, D,rcond=-1)[0] # TESTno units
 
         weighted_sum_dist = np.sum([np.dot(pos[:2] - c.pos[:2], c.norm[:2]) * c.weight
                                     for c in self.circles.values()]) * pos.unit
+        #weighted_sum_dist = np.sum([np.dot(pos[:2] - c.pos[:2], c.norm[:2]) * c.weight
+        #                            for c in self.circles.values()])  #TEST no units
         norm_sum_dist = np.sum([c.weight * linalg.length(c.norm[:2])
                                 for c in self.circles.values()])
         pos_uncert = abs(weighted_sum_dist / norm_sum_dist)
 
         return pos, pos_uncert
+        #return pos*u.m, pos_uncert*u.m  #TEST give units here
 
     def fit_core_minimise(self, seed=(0, 0), test_function=dist_to_traces):
         """
