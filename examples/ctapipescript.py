@@ -5,7 +5,7 @@ using HAP
 Author: Carlo Romoli - MPIK
 
 """
-# get_ipython().magic(u'pylab')
+get_ipython().magic(u'pylab')
 from ctapipe.io import event_source
 from ctapipe.instrument import CameraGeometry
 from ctapipe.image import hillas, tailcuts_clean
@@ -15,9 +15,11 @@ from ctapipe.reco import HillasReconstructor
 from ctapipe.visualization import CameraDisplay
 import astropy.units as u
 import matplotlib.pyplot as plt
-import numpy as np
+#import numpy as np
 from tqdm import tqdm
 from astropy.table import Table
+
+from IPython import display
 
 # load immediately the canvas with the 4 subplots
 # fig, axs = plt.subplots(1, 4, figsize=(15, 4), sharey=True, sharex=True)
@@ -94,7 +96,7 @@ def PlotSummedImages(event,mask,hillas):
 def PlotSummedImages_fromList(ev,image,mask,hillas):
     #plt.figure()
     #geom = event.inst.subarray.tel[-1].camera
-    #plt.cla()
+    plt.cla()
     disp = CameraDisplay(geom,title="HESS I",ax=ax)
     disp.cmap = 'jet'
     sum_image=0
@@ -108,6 +110,7 @@ def PlotSeveralCams_fromList(ev,image,hillas):
     cmaps = 'jet'
     ncams = 4
     fig, axs = plt.subplots(1, 4, figsize=(15, 4), sharey=True, sharex=True)
+    plt.cla()
     for ii in range(ncams):
         disp = CameraDisplay(
             geom,
@@ -156,7 +159,7 @@ if __name__ == "__main__":
         gsource = (x for x in source)
         # hillasReco = HillasReconstructor() ## method 1
         hillasReco = hillas_intersection.HillasIntersection()  ## method 2
-        for i in tqdm(range(1000)):
+        for i in tqdm(range(100)):
 #       for event in source:       # to read the entire run
             event = next(gsource)   # load a single event as a test
             HillasIm=dict()
@@ -197,8 +200,8 @@ if __name__ == "__main__":
 
     fig=plt.figure()
     ax=plt.gca()
-    PlotSummedImages_fromList(ev=9,image=ImageList,mask=MaskList,hillas=HillasList)
-    PlotSeveralCams_fromList(ev=9,image=ImageList,hillas=HillasList)
+    PlotSummedImages_fromList(ev=10,image=ImageList,mask=MaskList,hillas=HillasList)
+    PlotSeveralCams_fromList(ev=10,image=ImageList,hillas=HillasList)
 
     ## check some reconstructed features
     corx=[x['core_x']/u.m for x in ShowerList]
@@ -214,3 +217,4 @@ if __name__ == "__main__":
     plt.figure()
     plt.hist2d(corx,cory,bins=[np.linspace(-200,200,50),np.linspace(-200,200,50)])
     plt.show()
+
