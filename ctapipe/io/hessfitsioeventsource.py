@@ -73,7 +73,7 @@ class HESSfitsIOEventSource(EventSource):
             data.meta['input_url'] = self.input_url
             data.meta['max_events'] = self.max_events  #not sure how to handle this if events have a separated entry for each telescope
             obs_id = eventtable.read_header()['OBS_ID']
-            # reftime = Time(eventtable.read_header()['MJDREFI']+eventtable.read_header()['MJDREFF'],format='mjd')
+            reftime = Time(eventtable.read_header()['MJDREFI']+eventtable.read_header()['MJDREFF'],format='mjd')
             while inc < eventtable.get_nrows():
                 '''
                 make the streaming of events different, it is a bit brutal this way
@@ -85,6 +85,8 @@ class HESSfitsIOEventSource(EventSource):
                 data.pointing.azimuth = eventtable['AZ_PNT'][inc][0]  # azimuth per event - needs to be a number
                 data.pointing.altitude = eventtable['ALT_PNT'][inc][0]  # altitude per event - needs to be a number
                 tels_with_data = eventstream[eventstream['EVENT_ID']==event_id]['TEL_ID']
+                data.trig.gps_time = (reftime+TimeDelta(eventtable['TIME'][inc][0], format='sec'))
+                data.trig.tels_with_trigger = tels_with_data
 
                 data.count = counter
                 data.r0.obs_id = obs_id
@@ -114,8 +116,7 @@ class HESSfitsIOEventSource(EventSource):
 
                 for tel_id in tels_with_data:
                     ## time of the event for each telescope, copied in the dl0.CameraContainer
-                    data.dl0.tel[tel_id].trigger_time = (
-                                TimeDelta(eventstream['TIME'][tel_id - 1], format='sec'))
+                    # data.dl0.tel[tel_id].trigger_time = (TimeDelta(eventstream['TIME'][tel_id - 1], format='sec'))
                     npix = len(data.inst.subarray.tel[tel_id].camera.pix_id)
                     data.dl1.tel[tel_id].image = self.np.zeros(npix)
                     data.dl1.tel[tel_id].image[eventstream['TEL_IMG_IPIX'][tel_id-1]]=eventstream['TEL_IMG_INT'][tel_id-1]
